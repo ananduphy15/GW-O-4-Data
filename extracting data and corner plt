@@ -1,0 +1,92 @@
+import os
+import tarfile
+import glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import corner
+
+# ==========================================
+# 1. Download & Extract Archive
+# ==========================================
+# Assuming file is in your local mounted path:
+tar_path = "/mnt/c/Users/Administrator/Downloads/O4_unlensed.tar.gz"
+extract_dir = "/mnt/c/Users/Administrator/Downloads/O4_unlensed_extracted/"
+
+print("⚡ Extracting tarball...")
+os.makedirs(extract_dir, exist_ok=True)
+with tarfile.open(tar_path, "r:gz") as tar:
+    tar.extractall(path=extract_dir)
+print(f"✅ Extraction finished to: {extract_dir}")
+
+# ==========================================
+# 2. Locate and Read PE Feather File
+# ==========================================
+# Search recursively for any .feather or .ftr files inside the extracted folder
+feather_files = glob.glob(os.path.join(extract_dir, "**/*.feather"), recursive=True) + \
+                glob.glob(os.path.join(extract_dir, "**/*.ftr"), recursive=True)
+
+if not feather_files:
+    raise FileNotFoundError("Could not find any .feather files in the extracted archive.")
+
+# Choose the first available PE file to parse
+target_file = feather_files[0]
+print(f"📖 Reading PE File: {os.path.basename(target_file)}")
+
+# Read using Pandas' integrated Arrow Feather engine
+df_raw = pd.read_feather(target_file)
+
+# ==========================================
+# 3. Variable Mapping & Transformations
+# ==========================================
+# Standardizing column names from LVK PE pipelines (e.g., Bilby / PESummary)
+mapping = {
+    'chirp_mass': 'chirp_mass',
+    'mass_ratio': 'mass_ratio',
+    'luminosity_distance': 'luminosity_distance',
+    'iota': 'iota',  # fallback to 'inclination' if 'iota' isn't explicitly used
+    'ra': 'ra',
+    'dec': 'dec'
+}
+
+# Dynamic fallback validation to ensure correct column matching
+for common_key, standard_name in [('inclination', 'iota'), ('distance', 'luminosity_distance')]:
+    if common_key in df_raw.columns and standard_name not in df_raw.columns:
+        df_raw[standard_name] = df_raw[common_key]
+
+# Compute requested mathematical modifications
+df_processed = pd.DataFrame()
+df_processed['log10_chirp_mass'] = np.log10(df_raw['chirp_mass'])
+df_processed['log10_mass_ratio'] = np.log10(df_raw['mass_ratio'])
+df_processed['distance'] = df_raw['luminosity_distance']
+df_processed['inclination'] = df_raw['iota'] if 'iota' in df_raw.columns else df_raw['inclination']
+df_processed['ra'] = df_raw['ra']
+df_processed['sindec'] = np.sin(df_raw['dec'])
+
+print("📋 Data transformation complete. Shape:", df_processed.shape)
+
+# ==========================================
+# 4. Generate the Posterior Cornerplot
+# ==========================================
+print("🎨 Rendering corner plot...")
+labels = [
+    r"$\log_{10} \mathcal{M}_c$", 
+    r"$\log_{10} q$", 
+    r"$d_L\text{ (Mpc)}$", 
+    r"$\iota\text{ (rad)}$", 
+    r"$\alpha\text{ (RA)}$", 
+    r"$\sin(\delta)$"
+]
+
+fig = corner.corner(
+    df_processed.dropna(),
+    labels=labels,
+    quantiles=[0.16, 0.5, 0.84],
+    show_titles=True,
+    title_fmt=".2f",
+    title_kwargs={"fontsize": 10},
+    color="midnightblue",
+    truth_color="darkorange"
+)
+
+plt.show()
