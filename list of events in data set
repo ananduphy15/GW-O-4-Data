@@ -1,0 +1,13 @@
+#list of all events in the data set
+import tarfile
+
+tar_path = "/mnt/c/Users/Administrator/Downloads/O4_unlensed.tar.gz"
+
+with tarfile.open(tar_path, "r:gz") as tar:
+    # Filter out directory names and list only actual data files (.feather)
+    wave_files = [m.name for m in tar.getmembers() if m.name.endswith('.feather') or m.name.endswith('.ftr')]
+    
+print(f"📊 Total Gravitational Wave datasets found: {len(wave_files)}")
+print("\n🗂️ List of all Wave Event files:")
+for file in sorted(wave_files):
+    print(f" - {file}")
